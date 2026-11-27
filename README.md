@@ -23,3 +23,12 @@ cd src && python3 build.py && node ../tests/sim2.js
 ## 公開(GitHub Pages)
 `docs/index.html` が公開用の単一HTMLです(`build.py` が自動で更新)。
 リポジトリの Settings → Pages で Source を `main` / `/docs` に設定すると、URLを知っていれば誰でも遊べます(無料プランでは公開リポジトリが必要)。
+
+## 動作確認(スモークテスト)
+キャラ追加などの変更後は、`src/` で `python3 build.py` を実行してから次を流してください。
+```
+node ../tests/smoke_all.js      # 全画面・全ステージ戦闘(時間がかかります)
+node ../tests/smoke_gacha.js    # ガチャ1連/10連
+node ../tests/smoke_battle.js   # 実戦闘を最後まで
+node ../tests/smoke_mobile.js   # スマホ幅の横はみ出し確認
+```
