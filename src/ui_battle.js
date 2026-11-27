@@ -15,6 +15,8 @@ const TYN = { slash: '斬', pierce: '突', blunt: '打' };
 function rtBadges(u) { return ['slash', 'pierce', 'blunt'].map(t => { const m = (u.rt && u.rt[t]) || 1; return `<i class="rt ${m >= 2 ? 'w' : m < 1 ? 's' : ''}" title="${TYN[t]}撃への耐性 ${rtName(m)}">${TYN[t]}${m >= 2 ? '×2' : m < 1 ? '×½' : '×1'}</i>`; }).join(''); }
 
 function rngHtml(p) { const r = p.rng; if (!r) return ''; return `<span class="rng">自 ${r.a[0]}〜${r.a[1]}${r.b ? ` / 敵 ${r.b[0]}〜${r.b[1]}` : ''}<br>${TYN[r.ty]}耐性 <b style="color:${r.rt >= 2 ? '#7ee08a' : r.rt < 1 ? '#ff8a7a' : '#fff'}">${rtName(r.rt)}</b></span>`; }
+const WHY_SHORT = { '速度負け': '遅い', '同速は奪えない': '同速', '先に動く味方が合戦中': '先行', '味方が先に合戦': '奪われ', '相手は交戦済み': '交戦済', '相手が行動不能': '不能', '相手スキルが中断': '中断', '標的なし': '標的なし' };
+const whyShort = w => WHY_SHORT[w] || '直接攻撃';
 class BattleUI {
   constructor(spec, ctx) {
     this.spec = spec; this.ctx = ctx; this.view = null; this.B = null; this.phase = 'init'; this.sel = null; this.auto = !!S.set.auto; this.go = null; this.alive = true; this.lastRes = {}; this.cache = {};
@@ -26,7 +28,7 @@ class BattleUI {
       <div class="hud-btns"><button class="btn sm" data-b="info">敵情報</button><button class="btn sm" data-b="log">ログ</button><button class="btn sm" data-b="spd">×1</button><button class="btn sm" data-b="auto">AUTO</button><button class="btn sm" data-b="snd">♪</button><button class="btn sm red" data-b="quit">撤退</button></div>
       <div class="intents" id="intents"></div><div id="hotspots"></div><svg class="arrows" id="arrows"></svg><svg class="arrows" id="dragsvg"></svg><div id="wrbub" hidden></div>
       <div class="cards" id="cards"></div>
-      <div class="side" id="side"><div class="resbar" id="resbar"></div><div class="hint2" id="hint"><b>スロットを敵スキルへドラッグ</b>して標的を指定<br>敵本体へドラッグで直接攻撃 / タップでスキル変更<br>回避・防御も敵スキルを選べます</div><button class="btn pri startbtn" data-b="go"><span>戦闘開始</span><em id="unsetn"></em></button></div>
+      <div class="side" id="side"><div class="resbar" id="resbar"></div><div class="hint2" id="hint"><b>スロットを敵スキルへドラッグ</b>して標的を指定<br><b>自分の速度 &gt; 敵スキルの速度</b>なら、他と合戦中の敵スキルも<b>奪取</b>できます<br>敵本体へドラッグで直接攻撃 / タップでスキル変更<br>回避・防御も敵スキルを選べます</div><button class="btn pri startbtn" data-b="go"><span>戦闘開始</span><em id="unsetn"></em></button></div>
       <div class="menu" id="menu" hidden></div></div><div id="result" hidden></div></div>`;
     this.stage = $('#stage'); this.hud = $('#hud');
     this.view = new BattleView($('#bcv'));
@@ -107,7 +109,7 @@ class BattleUI {
   }
   /* ---------- 計画フェーズ ---------- */
   renderPlan() {
-    const B = this.B; this.phase = 'plan'; this.sel = null; this.closeMenu();
+    const B = this.B; this.phase = 'plan'; this.sel = null; this.closeMenu(); this.pred = B.predict();
     $('#cards').classList.remove('low'); $('#side').classList.remove('hide');
     // スロット
     B.side('A').forEach(u => {
@@ -123,12 +125,19 @@ class BattleUI {
     b.dataset.u = u.id; b.dataset.i = s.i; b.style.setProperty('--sin', sc.c);
     b.title = (descSkill(sk) || kindName(sk)) + (atk ? '\n(敵スキル/敵本体へドラッグで標的指定)' : '');
     let to = '';
-    if (atk) { if (!s.target) to = '<span class="to un">ドラッグ ⇢</span>'; else { const tu = this.B.U(s.target.u), n = this.B.side('E').indexOf(tu) + 1; to = `<span class="to">⇢ 敵${n}${s.target.s != null ? ' ⚔' : ''}</span>`; } }
+    if (atk) {
+      if (!s.target) to = '<span class="to un">ドラッグ ⇢</span>';
+      else {
+        const tu = this.B.U(s.target.u), n = this.B.side('E').indexOf(tu) + 1, pr = this.pred && this.pred.get(s); let mk = s.target.s != null ? ' ⚔' : '', cl = '';
+        if (pr && pr.k === 'steal') { mk = ' ⚔奪'; cl = ' stl'; } else if (pr && pr.k === 'pulled') { mk = ' ⚔引'; cl = ' pul'; } else if (pr && pr.k === 'one' && s.target.s != null) { mk = ' ✕' + whyShort(pr.why); cl = ' bad'; b.title += '\n※マッチ不成立: ' + (pr.why || '直接攻撃'); }
+        to = `<span class="to${cl}">⇢ 敵${n}${mk}</span>`;
+      }
+    }
     b.innerHTML = `<span class="spd">${s.spd}</span><span class="t"><span class="nm">${esc(sk.n)}</span><span class="cn">${coinsHtml(sk.nC)}<em>${TYN[sk.type] || ''} ${this.B.powerRange(u, sk).join('-')}</em></span></span>${s.key !== s.dealt ? '<span class="sw">変更</span>' : ''}${to}`;
     if (u.panic > 0) b.disabled = true;
     parent.appendChild(b); return b;
   }
-  refreshSlots() { this.B.side('A').forEach(u => { const el = $(`.bcard[data-u="${u.id}"] .slots`); if (!el || !u.alive) return; el.innerHTML = ''; u.slots.forEach(s => this.slotEl(u, s, el)); }); this.refreshStart(); }
+  refreshSlots() { this.pred = this.B.predict(); this.B.side('A').forEach(u => { const el = $(`.bcard[data-u="${u.id}"] .slots`); if (!el || !u.alive) return; el.innerHTML = ''; u.slots.forEach(s => this.slotEl(u, s, el)); }); this.refreshStart(); }
   unsetSlots() { const out = []; this.B.alive('A').forEach(u => u.slots.forEach(s => { const sk = s.skill; if (sk && (sk.kind === 'atk' || sk.ego) && !s.target && u.panic <= 0) out.push({ u, s }); })); return out; }
   refreshStart() { const n = this.unsetSlots().length, e = $('#unsetn'); if (e) { e.textContent = n ? `未設定 ${n}` : '準備OK'; e.className = n ? 'warn' : 'ok'; } }
   enemyAnchor(vu) { const top = vu.py - vu.ph - 96; return { x: vu.px, y: clamp(top, 170, 480) }; }
@@ -153,26 +162,29 @@ class BattleUI {
     SIN_KEYS.concat(['e']).forEach(k => { const c = k === 'e' ? '#ff4d5e' : SIN[k].c; h += `<marker id="mk-${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`; });
     h += '</defs>'; const st = this.stage;
     const ctr = el => { const p = posIn(el, st); return { x: p.x + p.w / 2, y: p.y + p.h / 2, t: p.y, b: p.y + p.h, l: p.x, r: p.x + p.w }; };
-    // 敵→味方
+    // 敵→味方(奪われた敵スキルは元の矢印を薄くし、奪った味方スキルへ向ける)
+    const pred = B.predict(); this.pred = pred;
     B.alive('E').forEach(e => e.slots.forEach(s => {
       if (!s.target || s.canceled) return; const ce = $(`.chip[data-e="${e.id}"][data-s="${s.i}"]`); if (!ce) return;
       let tgt = s.target.s != null ? $(`.slot[data-u="${s.target.u}"][data-i="${s.target.s}"]`) : $(`.bcard[data-u="${s.target.u}"]`); if (!tgt) return;
-      const a = ctr(ce), b = ctr(tgt); h += `<path d="M${a.x} ${a.b} C${a.x} ${a.b + 130} ${b.x} ${b.t - 130} ${b.x} ${b.t - 4}" fill="none" stroke="#ff4d5e" stroke-width="2" stroke-dasharray="5 5" opacity=".5" marker-end="url(#mk-e)"/>`;
+      const pe = pred.get(s), moved = pe && pe.k === 'pulled' && pe.p && pe.p.u.isAlly && !(pe.p.u.id === s.target.u && pe.p.slot.i === s.target.s);
+      const a = ctr(ce), b = ctr(tgt); h += `<path d="M${a.x} ${a.b} C${a.x} ${a.b + 130} ${b.x} ${b.t - 130} ${b.x} ${b.t - 4}" fill="none" stroke="#ff4d5e" stroke-width="2" stroke-dasharray="5 5" opacity="${moved ? .16 : .5}" marker-end="url(#mk-e)"/>`;
+      if (moved) { const t2 = $(`.slot[data-u="${pe.p.u.id}"][data-i="${pe.p.slot.i}"]`); if (t2) { const b2 = ctr(t2); h += `<path d="M${a.x} ${a.b} C${a.x} ${a.b + 130} ${b2.x} ${b2.t - 130} ${b2.x} ${b2.t - 4}" fill="none" stroke="#7ee0ff" stroke-width="2.5" stroke-dasharray="2 5" opacity=".85" marker-end="url(#mk-e)"/>`; } }
     }));
     // 味方→敵
     B.alive('A').forEach(u => u.slots.forEach(s => {
       const sk = s.skill; if (!sk || !s.target || (sk.kind !== 'atk' && !sk.ego)) return;
       const se = $(`.slot[data-u="${u.id}"][data-i="${s.i}"]`); if (!se) return; const a = ctr(se);
       const tu = B.U(s.target.u); if (!tu || !tu.alive) return;
-      let b, wr = null; const vu = this.view.vus[tu.id];
-      const ts = s.target.s != null ? tu.slots[s.target.s] : null;
-      const ce = ts ? $(`.chip[data-e="${tu.id}"][data-s="${s.target.s}"]`) : null;
-      const cst = ts ? B.clashState(u, s, tu, ts) : 'none';
-      if (ce && (cst === 'mutual' || cst === 'steal' || cst === 'def')) { const p = ctr(ce); b = { x: p.x - 66, y: p.y, end: 1 }; wr = B.estWin(u, sk, tu, ts.skill, 120); }
-      else { b = { x: vu.px, y: vu.py - vu.ph * .55 }; }
+      let b, wr = null, tag = null; const vu = this.view.vus[tu.id];
+      const pr = pred.get(s), pp = pr && pr.p && pr.k !== 'one' && pr.p.slot.skill ? pr.p : null;
+      const ce = pp ? $(`.chip[data-e="${pp.u.id}"][data-s="${pp.slot.i}"]`) : null;
+      if (ce) { const p = ctr(ce); b = { x: p.x - 66, y: p.y, end: 1 }; wr = B.estWin(u, sk, pp.u, pp.slot.skill, 120); tag = pr.k === 'steal' ? ['奪取', '#7ee0ff'] : pr.k === 'pulled' ? ['敵に引かれる', '#ffd479'] : null; }
+      else { b = { x: vu.px, y: vu.py - vu.ph * .55 }; if (s.target.s != null && pr && pr.k === 'one' && pr.why) tag = ['✕ ' + pr.why, '#ff9a7a']; }
       const c = SIN[sk.sin].c, sel = this.sel && this.sel.u === u && this.sel.i === s.i;
-      h += `<path d="M${a.x} ${a.t} C${a.x} ${a.t - 150} ${b.x - 50} ${b.y + 40} ${b.x} ${b.y}" fill="none" stroke="${c}" stroke-width="${sel ? 4.5 : 3}" opacity="${sel ? 1 : .85}" marker-end="url(#mk-${sk.sin})" style="filter:drop-shadow(0 0 4px ${c})"/>`;
+      h += `<path d="M${a.x} ${a.t} C${a.x} ${a.t - 150} ${b.x - 50} ${b.y + 40} ${b.x} ${b.y}" fill="none" stroke="${c}" stroke-width="${sel ? 4.5 : 3}" opacity="${sel ? 1 : .85}" marker-end="url(#mk-${sk.sin})" style="filter:drop-shadow(0 0 4px ${c})"${tag && !ce ? ' stroke-dasharray="7 6"' : ''}/>`;
       if (wr != null) { const mx = (a.x + b.x) / 2 + 8, my = (a.t + b.y) / 2 - 24, col = wr >= .6 ? '#7ee08a' : wr >= .4 ? '#ffd479' : '#ff6b6b'; h += `<g transform="translate(${mx} ${my})"><rect x="-24" y="-13" width="48" height="22" fill="rgba(6,3,12,.92)" stroke="${col}" stroke-width="1.5"/><text class="wr" x="0" y="3" text-anchor="middle" fill="${col}">${Math.round(wr * 100)}%</text></g>`; }
+      if (tag) { const tx = (a.x + b.x) / 2 + 8, ty = (a.t + b.y) / 2 - (wr != null ? 50 : 24), w = tag[0].length * 12 + 16; h += `<g transform="translate(${tx} ${ty})"><rect x="${-w / 2}" y="-11" width="${w}" height="20" fill="rgba(6,3,12,.92)" stroke="${tag[1]}" stroke-width="1.5"/><text class="wr" x="0" y="4" text-anchor="middle" fill="${tag[1]}" style="font-size:12px">${tag[0]}</text></g>`; }
     }));
     // 防御/回避 → 敵スキル(選択)
     B.alive('A').forEach(u => u.slots.forEach(s => {
@@ -183,7 +195,14 @@ class BattleUI {
     }));
     svg.innerHTML = h;
     // ターゲットされているチップを強調
-    $$('.chip').forEach(c => c.classList.remove('targeted'));
+    $$('.chip').forEach(c => { c.classList.remove('targeted'); delete c.dataset.m; });
+    B.alive('E').forEach(e => e.slots.forEach(s => {
+      const c = $(`.chip[data-e="${e.id}"][data-s="${s.i}"]`), pe = pred.get(s); if (!c || !pe) return;
+      if (pe.k === 'pulled' || pe.k === 'dsteal') c.dataset.m = pe.p && pe.p.u.isAlly ? '奪取' : '敵に引かれ';
+      else if (pe.k === 'steal') c.dataset.m = '敵奪取';
+      else if (pe.k === 'clash') c.dataset.m = '合戦';
+      else if (pe.k === 'one') c.dataset.m = '直撃';
+    }));
     B.alive('A').forEach(u => u.slots.forEach(s => { const t = s.dtarget || (s.target && s.target.u !== u.id ? s.target : null); if (t && t.s != null) { const c = $(`.chip[data-e="${t.u}"][data-s="${t.s}"]`); if (c) c.classList.add('targeted'); } }));
   }
   closeMenu() { const m = $('#menu'); if (m) m.hidden = true; }
@@ -240,8 +259,20 @@ class BattleUI {
   beginDrag(p) {
     p.drag = true; this.sel = { u: p.u.id, i: p.s.i }; this.closeMenu(); this.markSel(); SFX.play('pick');
     const sp = posIn(p.el, this.stage); p.sx = sp.x + sp.w / 2; p.sy = sp.y + 2; p.cx = p.sx; p.cy = p.sy - 30; p.tx = p.cx; p.ty = p.cy; p.over = null;
-    p.el.classList.add('dragsrc'); this.stage.classList.add('dragging'); this.renderArrows();
+    p.el.classList.add('dragsrc'); this.stage.classList.add('dragging'); this.renderArrows(); this.markDragChips(p);
   }
+  /* ドラッグ中: 各敵スキルに「奪取OK / 合戦 / 速度負け…」のタグを表示する */
+  markDragChips(p) {
+    const B = this.B, defk = p.s.skill.kind !== 'atk' && !p.s.skill.ego;
+    $$('.chip').forEach(c => {
+      const tu = B.U(+c.dataset.e), ts = tu && tu.slots[+c.dataset.s]; if (!ts) return; let cls = '', txt = '';
+      if (defk) { const ok = ts.skill && ts.skill.kind === 'atk' && !ts.used && !ts.canceled && tu.stag <= 0 && B.stealable(p.u, p.s, tu, ts); cls = ok ? 'steal' : 'no'; txt = ok ? '奪取OK' : '速度負け'; }
+      else { const pr = B.predictWith(p.s, { target: { u: tu.id, s: ts.i } }); if (!pr) return;
+        if (pr.k === 'steal') { cls = 'steal'; txt = '奪取OK'; } else if (pr.k === 'clash') { cls = 'clash'; txt = '合戦'; } else if (pr.k === 'pulled') { cls = 'pull'; txt = '別の合戦'; } else { cls = 'no'; txt = whyShort(pr.why); } }
+      c.dataset.d = cls; c.dataset.dt = txt;
+    });
+  }
+  clearDragChips() { $$('.chip').forEach(c => { delete c.dataset.d; delete c.dataset.dt; }); }
   dragMove(e) {
     const p = this.pend, pt = this.toStage(e.clientX, e.clientY); p.px = pt.x; p.py = pt.y;
     const el = document.elementFromPoint(e.clientX, e.clientY), chip = el && el.closest('.chip'), hot = el && el.closest('.hot');
@@ -250,8 +281,15 @@ class BattleUI {
     if (over) {
       const q = posIn(over.el, this.stage);
       if (over.k === 'chip') { p.tx = q.x + 4; p.ty = q.y + q.h / 2; } else { p.tx = q.x + q.w / 2; p.ty = q.y + q.h * .45; }
-      if (p.wr == null && p.s.skill.kind !== 'atk' && !p.s.skill.ego) { const tu = this.B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null; const ok = ts && ts.skill && ts.skill.kind === 'atk' && !ts.used && p.s.spd > ts.spd && !this.B.pairedSlot(ts, tu) && tu.stag <= 0; p.cs = 'dfn'; p.wr = !ts ? -5 : ok ? -3 : -4; p.rng = null; }
-      else if (p.wr == null) { const tu = this.B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null; const cs = ts ? this.B.clashState(p.u, p.s, tu, ts) : 'none'; p.rng = { a: this.B.powerRange(p.u, p.s.skill, tu), b: ts ? this.B.powerRange(tu, ts.skill, p.u) : null, rt: tu.rt[p.s.skill.type] || 1, ty: p.s.skill.type }; p.cs = cs; p.wr = (cs === 'mutual' || cs === 'steal' || cs === 'def') ? this.B.estWin(p.u, p.s.skill, tu, ts.skill, 140) : (cs === 'slow' || cs === 'prot') ? -2 : -1; }
+      if (p.wr == null && p.s.skill.kind !== 'atk' && !p.s.skill.ego) { const tu = this.B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null; const ok = ts && ts.skill && ts.skill.kind === 'atk' && !ts.used && !ts.canceled && tu.stag <= 0 && this.B.stealable(p.u, p.s, tu, ts); p.tsSpd = ts ? ts.spd : null; p.cs = 'dfn'; p.wr = !ts ? -5 : ok ? -3 : -4; p.rng = null; }
+      else if (p.wr == null) {
+        const B = this.B, tu = B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null;
+        const pr = B.predictWith(p.s, { target: { u: tu.id, s: ts ? ts.i : null } }), pp = pr && pr.p && pr.k !== 'one' && pr.p.slot.skill ? pr.p : null;
+        let cs = 'none'; if (pr) { if (pr.k === 'steal') cs = 'steal'; else if (pr.k === 'clash') cs = 'mutual'; else if (pr.k === 'pulled') cs = 'pulled'; else if (ts) cs = /速度|同速/.test(pr.why || '') ? 'slow' : 'prot'; }
+        p.tsSpd = ts ? ts.spd : null; p.why = pr && pr.why || '';
+        p.rng = { a: B.powerRange(p.u, p.s.skill, tu), b: pp ? B.powerRange(pp.u, pp.slot.skill, p.u) : null, rt: tu.rt[p.s.skill.type] || 1, ty: p.s.skill.type }; p.cs = cs;
+        p.wr = pp ? B.estWin(p.u, p.s.skill, pp.u, pp.slot.skill, 140) : (ts && pr && pr.k === 'one') ? -2 : -1;
+      }
     } else { p.tx = pt.x; p.ty = pt.y; }
   }
   dragFrame() {
@@ -264,9 +302,9 @@ class BattleUI {
     // 矢じり
     const ang = Math.atan2(b.y - c2.y, b.x - c2.x), ah = 16, hx1 = b.x - Math.cos(ang - .45) * ah, hy1 = b.y - Math.sin(ang - .45) * ah, hx2 = b.x - Math.cos(ang + .45) * ah, hy2 = b.y - Math.sin(ang + .45) * ah;
     svg.innerHTML = `<g style="filter:drop-shadow(0 0 7px ${c})"><path d="M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="9" stroke-linecap="round"/><path d="M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${snap ? '0' : '2 9'}"/><path d="M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".8"/><polygon points="${b.x},${b.y} ${hx1},${hy1} ${hx2},${hy2}" fill="${snap ? '#fff' : c}"/><circle cx="${a.x}" cy="${a.y}" r="6" fill="${c}" stroke="#fff" stroke-width="2"/></g>`;
-    if (snap && p.wr != null && p.wr >= 0) { const col = p.wr >= .6 ? '#7ee08a' : p.wr >= .4 ? '#ffd479' : '#ff6b6b'; bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = col; bub.style.borderColor = col; bub.innerHTML = `<small>${p.cs === 'steal' ? '奪取・勝率' : '勝率'}</small>${Math.round(p.wr * 100)}%${rngHtml(p)}`; }
-    else if (snap && p.wr === -2) { bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = '#ff9a7a'; bub.style.borderColor = '#ff9a7a'; bub.innerHTML = (p.cs === 'prot' ? '<small>相手は合戦中</small>奪取不可' : '<small>速度不足</small>直接攻撃') + rngHtml(p); }
-    else if (snap && (p.wr === -3 || p.wr === -4 || p.wr === -5)) { const m = { '-3': ['#7ee08a', '速度で先に回避', '奪取して使用'], '-4': ['#ffd479', '速度不足', '受け身の防御'], '-5': ['#ff9a7a', '敵スキルを選択', '敵本体は不可'] }[p.wr]; bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = m[0]; bub.style.borderColor = m[0]; bub.innerHTML = `<small>${m[1]}</small>${m[2]}`; }
+    if (snap && p.wr != null && p.wr >= 0) { const col = p.wr >= .6 ? '#7ee08a' : p.wr >= .4 ? '#ffd479' : '#ff6b6b'; bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = col; bub.style.borderColor = col; bub.innerHTML = `<small>${p.cs === 'steal' ? '奪取 速度' + p.s.spd + '>' + p.tsSpd + '・勝率' : p.cs === 'pulled' ? '別の合戦に引かれる・勝率' : '勝率'}</small>${Math.round(p.wr * 100)}%${rngHtml(p)}`; }
+    else if (snap && p.wr === -2) { bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = '#ff9a7a'; bub.style.borderColor = '#ff9a7a'; bub.innerHTML = (p.cs === 'slow' ? `<small>${p.s.spd === p.tsSpd ? '同速は奪えない' : '速度不足'} ${p.s.spd}≦${p.tsSpd}</small>直接攻撃` : `<small>${esc(p.why || 'マッチ不可')}</small>直接攻撃`) + rngHtml(p); }
+    else if (snap && (p.wr === -3 || p.wr === -4 || p.wr === -5)) { const m = { '-3': ['#7ee08a', '速度で先に回避 ' + p.s.spd + '>' + p.tsSpd, '奪取して使用'], '-4': ['#ffd479', '速度不足 ' + p.s.spd + '≦' + p.tsSpd, '受け身の防御'], '-5': ['#ff9a7a', '敵スキルを選択', '敵本体は不可'] }[p.wr]; bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = m[0]; bub.style.borderColor = m[0]; bub.innerHTML = `<small>${m[1]}</small>${m[2]}`; }
     else if (snap && p.wr === -1) { bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = '#ffd479'; bub.style.borderColor = '#ffd479'; bub.innerHTML = '<small>直接攻撃</small>' + rngHtml(p); }
     else bub.hidden = true;
   }
@@ -274,15 +312,22 @@ class BattleUI {
     const p = this.pend; if (!p || (e && e.pointerId !== p.id)) return; this.pend = null;
     if (!p.drag) return;
     this.suppressClick = true; setTimeout(() => { this.suppressClick = false; }, 80);
-    p.el.classList.remove('dragsrc'); this.stage.classList.remove('dragging'); if (p.over) p.over.el.classList.remove('over');
+    p.el.classList.remove('dragsrc'); this.stage.classList.remove('dragging'); if (p.over) p.over.el.classList.remove('over'); this.clearDragChips();
     const svg = $('#dragsvg'); if (svg) svg.innerHTML = ''; const bub = $('#wrbub'); if (bub) bub.hidden = true;
     this.sel = null; this.markSel();
     if (p.over && this.phase === 'plan') {
       const tu = this.B.U(p.over.e); const defk = p.s.skill.kind !== 'atk' && !p.s.skill.ego;
       if (defk) { if (tu && tu.alive && p.over.s != null) { p.s.dtarget = { u: tu.id, s: p.over.s }; SFX.play('ok'); this.refreshSlots(); this.renderArrows(); } else { SFX.play('deny'); toast('回避・防御は敵のスキルを選択してください'); this.renderArrows(); } return; }
-      if (tu && tu.alive) { p.s.target = { u: tu.id, s: p.over.s }; SFX.play('ok'); this.refreshSlots(); this.renderArrows(); const sl = $(`.slot[data-u="${p.u.id}"][data-i="${p.s.i}"]`); if (sl) { sl.classList.add('assigned'); setTimeout(() => sl.classList.remove('assigned'), 500); } return; }
+      if (tu && tu.alive) { const was = this.B.predict(); p.s.target = { u: tu.id, s: p.over.s }; SFX.play(this.B.predict().get(p.s) && this.B.predict().get(p.s).k === 'steal' ? 'flip' : 'ok'); this.refreshSlots(); this.renderArrows(); this.notifyDisplaced(p, was); const sl = $(`.slot[data-u="${p.u.id}"][data-i="${p.s.i}"]`); if (sl) { sl.classList.add('assigned'); setTimeout(() => sl.classList.remove('assigned'), 500); } return; }
     }
     SFX.play('back'); this.renderArrows();
+  }
+  /* 奪取で合戦相手を失った味方スキルを知らせる */
+  notifyDisplaced(p, was) {
+    const now = this.B.predict(), me = now.get(p.s), out = [];
+    this.B.alive('A').forEach(u => u.slots.forEach(s => { if (s === p.s) return; const a = was.get(s), b = now.get(s); if (a && b && (a.k === 'clash' || a.k === 'steal') && b.k === 'one') out.push(u.name + (b.why ? '(' + b.why + ')' : '')); }));
+    if (me && me.k === 'steal') toast('マッチ奪い成立!' + (out.length ? ' 合戦を失う: ' + out.join('、') + ' → 標的を選び直せます' : ''));
+    else if (out.length) toast('合戦が崩れました: ' + out.join('、'));
   }
   btn(k) {
     SFX.init();

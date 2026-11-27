@@ -31,4 +31,7 @@ node ../tests/smoke_all.js      # 全画面・全ステージ戦闘(時間がか
 node ../tests/smoke_gacha.js    # ガチャ1連/10連
 node ../tests/smoke_battle.js   # 実戦闘を最後まで
 node ../tests/smoke_mobile.js   # スマホ幅の横はみ出し確認
+node ../tests/steal.js          # マッチ奪い(速度奪取)の決定的テスト
+node ../tests/pred.js           # マッチ予測と実際の戦闘結果の一致率
+node ../tests/steal_ui.js       # 戦闘画面でのドラッグ奪取(スクショ steal_*.png)
 ```

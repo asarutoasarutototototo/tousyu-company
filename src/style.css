@@ -593,3 +593,19 @@ svg.arrows{position:absolute;inset:0;width:1280px;height:720px;pointer-events:no
 .lvtxt{position:fixed;z-index:76;transform:translate(-50%,0);pointer-events:none;text-align:center;font-family:var(--f-num);letter-spacing:.2em;color:#ffe9a8;text-shadow:0 0 14px #ffb347,0 0 3px #000;font-size:15px;animation:lvT 1.4s ease forwards}
 .lvtxt b{display:block;font-size:34px;letter-spacing:.05em;color:#fff}
 @keyframes lvT{0%{opacity:0;transform:translate(-50%,16px) scale(.7)}18%{opacity:1;transform:translate(-50%,0) scale(1.1)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-34px)}}
+
+/* ---- マッチ奪い: 予測タグ ---- */
+.chip[data-m]::after,.chip[data-d]::after{content:attr(data-m);position:absolute;left:100%;top:50%;margin-left:5px;transform:translateY(-50%);padding:0 5px;font-family:var(--f-num),sans-serif;font-weight:700;font-size:10px;line-height:16px;white-space:nowrap;background:rgba(6,3,12,.94);border:1px solid #7ee0ff;color:#7ee0ff;pointer-events:none;letter-spacing:.04em}
+.chip[data-m="直撃"]::after,.chip[data-m="敵奪取"]::after{border-color:#ff8a7a;color:#ff8a7a}
+.chip[data-m="奪取"]::after{border-color:#7ee08a;color:#7ee08a}
+.chip[data-d]::after{content:attr(data-dt)}
+.chip[data-d=steal]::after{border-color:#7ee08a;color:#7ee08a;box-shadow:0 0 8px rgba(126,224,138,.7)}
+.chip[data-d=clash]::after{border-color:#7ee0ff;color:#7ee0ff}
+.chip[data-d=pull]::after{border-color:#ffd479;color:#ffd479}
+.chip[data-d=no]::after{border-color:#ff9a7a;color:#ff9a7a}
+.dragging .chip[data-d=steal]{box-shadow:0 0 0 2px #7ee08a,0 0 16px #7ee08a;transform:scale(1.04)}
+.dragging .chip[data-d=clash]{box-shadow:0 0 0 1px #7ee0ff}
+.dragging .chip[data-d=no]{opacity:.6}
+.slot .to.stl{color:#7ee0ff}
+.slot .to.pul{color:#ffd479}
+.slot .to.bad{color:#ff9a7a}

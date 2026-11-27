@@ -322,12 +322,22 @@ class Battle {
     const ps = pu.slots[t.s]; if (!ps || ps.used || ps.canceled || !ps.skill) return null;
     return this.mutualWith(ps, pu, ts, owner) ? ps : null;
   }
+  /* 行動順(速度が高い方が先、同速は tie の小さい方) */
+  before(a, b) { return a.spd > b.spd || (a.spd === b.spd && a.tie < b.tie); }
+  /* マッチ奪い: 速度が上回る攻撃スキルは、他と合戦する予定の敵スキルでも奪える。
+     ただし、その合戦相手(味方)のほうが先に動く場合は先に合戦が成立するので奪えない。
+     敵が味方の合戦を奪うことはできない(相互指定の組は守られる)。 */
+  stealable(au, a, tu, ts) {
+    if (!(a.spd > ts.spd)) return false;
+    const ps = this.pairedSlot(ts, tu); if (!ps) return true;
+    return !!au.isAlly && this.before(a, ps);
+  }
   clashState(au, a, tu, ts) {
     if (!ts || !ts.skill || ts.used || ts.canceled || tu.stag > 0) return 'none';
     if (ts.skill.kind !== 'atk' && !ts.skill.ego) return 'def';
     if (this.mutualWith(ts, tu, a, au)) return 'mutual';
-    if (this.pairedSlot(ts, tu)) return 'prot';
-    return a.spd > ts.spd ? 'steal' : 'slow';
+    if (!(a.spd > ts.spd)) return 'slow';
+    return this.stealable(au, a, tu, ts) ? 'steal' : 'prot';
   }
   findPartner(act) {
     const u = act.u, tg = act.slot.target; if (!tg) return null;
@@ -345,7 +355,7 @@ class Battle {
     for (const ts of tu.slots) if (!ts.used && !ts.canceled && ts.skill && ts.target && ts.target.u === u.id && ts.target.s === act.slot.i) return { u: tu, slot: ts };
     /* 味方の攻撃: 指定スキルとマッチできない場合、同じ敵の他の(速度で奪える)攻撃スキルとマッチする */
     if (u.isAlly && tg.s != null) {
-      const cand = tu.slots.filter(ts => ts !== tu.slots[tg.s] && !ts.used && !ts.canceled && ts.skill && (ts.skill.kind === 'atk' || ts.skill.ego) && act.slot.spd > ts.spd && !this.pairedSlot(ts, tu));
+      const cand = tu.slots.filter(ts => ts !== tu.slots[tg.s] && !ts.used && !ts.canceled && ts.skill && (ts.skill.kind === 'atk' || ts.skill.ego) && this.stealable(u, act.slot, tu, ts));
       cand.sort((a, b) => ((b.target && b.target.u === u.id) - (a.target && a.target.u === u.id)) || b.spd - a.spd);
       if (cand.length) return { u: tu, slot: cand[0], steal: true, alt: true };
     }
@@ -357,9 +367,46 @@ class Battle {
     const tu = this.U(tg.u); if (!tu) return null;
     if (!tu.alive || tu.stag > 0) return '相手が行動不能';
     const ts = tu.slots[tg.s]; if (!ts || ts.canceled) return '相手スキルが中断';
-    if (ts.used) return '相手は交戦済み';
+    if (ts.used) { const by = ts.by != null ? this.U(ts.by) : null; return by && by.isAlly === act.u.isAlly ? '味方が先に合戦' : '相手は交戦済み'; }
     const st = this.clashState(act.u, act.slot, tu, ts);
-    return st === 'slow' ? '速度負け' : st === 'prot' ? '相手は相互指定中' : null;
+    return st === 'slow' ? (act.slot.spd === ts.spd ? '同速は奪えない' : '速度負け') : st === 'prot' ? '先に動く味方が合戦中' : null;
+  }
+  /* 計画の予測: 速度順に「誰と誰が合戦になるか」だけを再現する(乱数・戦闘中の状態変化は無視)。
+     戻り値 Map(slot → {k, p, why})。k: 'clash'(合戦) / 'steal'(奪取して合戦) / 'pulled'(別の合戦に引かれる)
+     / 'dsteal'(回避・防御の奪取) / 'one'(直接攻撃)。p は合戦の相手 {u, slot} */
+  predict() {
+    const acts = []; this.units.forEach(u => { if (u.alive) u.slots.forEach(s => acts.push({ u, slot: s })); });
+    acts.sort((a, b) => b.slot.spd - a.slot.spd || a.slot.tie - b.slot.tie);
+    const saved = new Map(), out = new Map();
+    const use = (s, by) => { if (!saved.has(s)) saved.set(s, [s.used, s.by]); s.used = true; if (by != null) s.by = by; };
+    for (const act of acts) {
+      const u = act.u, slot = act.slot, sk = slot.skill;
+      if (slot.used || slot.canceled || !sk) continue;
+      if (u.stag > 0 && !slot.pulled) continue;
+      if (sk.kind !== 'atk' && !sk.ego) {
+        const dt = slot.dtarget, du = dt && this.U(dt.u), ds = du && du.alive && !(du.stag > 0) ? du.slots[dt.s] : null;
+        if (ds && ds.skill && ds.skill.kind === 'atk' && !ds.used && !ds.canceled && this.stealable(u, slot, du, ds)) {
+          use(slot); use(ds, u.id); out.set(slot, { k: 'dsteal', p: { u: du, slot: ds } }); out.set(ds, { k: 'pulled', p: { u, slot } });
+        } else use(slot);
+        continue;
+      }
+      const tg = slot.target, tu = tg && this.U(tg.u); use(slot);
+      if (!tu || !tu.alive) { out.set(slot, { k: 'one', why: '標的なし' }); continue; }
+      const partner = this.findPartner(act);
+      if (partner) {
+        use(partner.slot, u.id);
+        out.set(slot, { k: partner.steal ? 'steal' : 'clash', p: { u: partner.u, slot: partner.slot }, alt: !!partner.alt });
+        const own = partner.slot.target && partner.slot.target.u === u.id && partner.slot.target.s === slot.i;
+        out.set(partner.slot, { k: own ? 'clash' : 'pulled', p: { u, slot } });
+      } else out.set(slot, { k: 'one', why: this.nomatchReason(act) || '' });
+    }
+    saved.forEach((v, s) => { s.used = v[0]; s.by = v[1]; });
+    return out;
+  }
+  /* slot の標的を一時的に変えたときの予測結果(ドラッグ中のプレビュー用) */
+  predictWith(slot, patch) {
+    const keys = Object.keys(patch), old = keys.map(k => slot[k]); keys.forEach(k => { slot[k] = patch[k]; });
+    try { return this.predict().get(slot) || null; } finally { keys.forEach((k, i) => { slot[k] = old[i]; }); }
   }
   retarget(act) {
     const tg = act.slot.target; let tu = tg && this.U(tg.u);
@@ -376,7 +423,7 @@ class Battle {
     if (sk.kind !== 'atk' && !sk.ego) {
       /* 防御/回避スキルの能動使用: 選択した敵スキルより速度が上なら、そのスキルに対して先に使用(奪取)する */
       const dt = slot.dtarget, du = dt && this.U(dt.u), ds = du && du.alive && !(du.stag > 0) ? du.slots[dt.s] : null;
-      if (ds && ds.skill && ds.skill.kind === 'atk' && !ds.used && !ds.canceled && slot.spd > ds.spd && !this.pairedSlot(ds, du)) {
+      if (ds && ds.skill && ds.skill.kind === 'atk' && !ds.used && !ds.canceled && this.stealable(u, slot, du, ds)) {
         slot.used = true; this.noteUse(u, slot); ds.used = true; ds.pulled = true; this.noteUse(du, ds);
         this.clash(act, { u: du, slot: ds }, true);
         this.afterSkill(u); this.checkOver(); return;
@@ -392,7 +439,7 @@ class Battle {
     }
     const partner = this.findPartner(act);
     if (!partner && u.isAlly) { const why = this.nomatchReason(act); if (why) this.push({ t: 'pop', u: u.id, text: 'マッチ不成立: ' + why, color: '#ffb0b0' }); }
-    if (partner) { partner.slot.used = true; partner.slot.pulled = true; this.noteUse(partner.u, partner.slot); this.clash(act, partner, partner.steal); }
+    if (partner) { partner.slot.used = true; partner.slot.pulled = true; partner.slot.by = u.id; this.noteUse(partner.u, partner.slot); this.clash(act, partner, partner.steal); }
     else this.oneSided(act, tu);
     if (sk.aoe && u.alive && !this.over) this.aoeHits(act, tu);
     this.afterSkill(u);
