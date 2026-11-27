@@ -1,0 +1,23 @@
+const { chromium } = require('playwright');
+(async()=>{
+  const b = await chromium.launch(); const p = await b.newPage({viewport:{width:1280,height:900}});
+  const errs=[]; p.on('pageerror',e=>errs.push('PAGEERR '+e)); p.on('console',m=>{if(m.type()==='error'&&!/ERR_/.test(m.text()))errs.push(m.text())});
+  await p.goto('file://'+process.cwd()+'/test_full.html'); await p.waitForTimeout(1500);
+  await p.click('[data-act=start]',{force:true}); await p.waitForTimeout(600);
+  console.log('new player cap', await p.evaluate('lvCap()'));
+  await p.evaluate(`S.seen.prologue=1; S.login={last:dayNo(),n:1}; S.thread=900000; STAGES.filter(s=>s.ch<=12).forEach(s=>S.cleared[s.id]=1); saveState(); go('story')`); await p.waitForTimeout(800);
+  console.log('cap after 12 ch', await p.evaluate('lvCap()+" next "+nextStage().id'));
+  await p.screenshot({path:'ch_story.png'});
+  await p.click('[data-act=chpick]'); await p.waitForTimeout(400); await p.screenshot({path:'ch_pick.png'});
+  await p.click('[data-m=c9]'); await p.waitForTimeout(500);
+  console.log('chap', await p.evaluate('STORY_CH+" "+STORY_SEL'));
+  await p.evaluate(`go('lux')`); await p.waitForTimeout(700); await p.screenshot({path:'ch_lux.png'});
+  await p.evaluate(`go('roster')`); await p.waitForTimeout(500); await p.evaluate(`ROS_TAB='lv'; go('roster')`); await p.waitForTimeout(700);
+  const before=await p.evaluate('sLv(ROS_SID)'); await p.click('[data-act=rlvn][data-n="999"]'); await p.waitForTimeout(300);
+  console.log('lv', before,'->',await p.evaluate('sLv(ROS_SID)+" thread "+S.thread+" cap "+lvCap()'));
+  await p.screenshot({path:'ch_lv.png'});
+  await p.evaluate(`go('recall')`); await p.waitForTimeout(500); await p.screenshot({path:'ch_recall.png'});
+  await p.evaluate(`go('trial')`); await p.waitForTimeout(600); console.log('trial lv', await p.evaluate('[0,1,2].map(trialLv).join()'));
+  console.log('tower', await p.evaluate('[10,40,45,100,226].map(f=>towerFloor(f).lv+":"+towerFloor(f).rw.thread).join(" ")'));
+  console.log('errors',errs.slice(0,6)); await b.close();
+})();

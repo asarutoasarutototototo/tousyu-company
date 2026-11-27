@@ -1,0 +1,27 @@
+const { chromium } = require('playwright');
+(async()=>{
+  const b = await chromium.launch(); const p = await b.newPage({viewport:{width:1280,height:800}});
+  const errs=[]; p.on('pageerror',e=>errs.push('PAGEERR '+e)); p.on('console',m=>{if(m.type()==='error'&&!/ERR_/.test(m.text()))errs.push(m.text())});
+  await p.goto('file://'+process.cwd()+'/test_full.html'); await p.waitForTimeout(1500);
+  await p.click('[data-act=start]',{force:true}); await p.waitForTimeout(600);
+  await p.evaluate(`S.seen.prologue=1; S.cleared['1-1']=1; S.cleared['1-2']=1; for(const k of SINNER_KEYS)S.lv[k]=12; S.oil=60; saveState(); go('form')`);
+  await p.waitForTimeout(600);
+  await p.click('[data-act=pset][data-i="0"]'); await p.waitForTimeout(300);
+  await p.evaluate(`S.team=['rei']; saveState(); go('form')`); await p.waitForTimeout(400);
+  await p.click('[data-act=pset][data-i="1"]'); await p.waitForTimeout(300);
+  await p.click('[data-act=pload][data-i="0"]'); await p.waitForTimeout(300);
+  console.log('team after load', await p.evaluate('S.team.join()'));
+  await p.screenshot({path:'nf_form.png'});
+  await p.evaluate(`go('story',{st:'1-1'})`); await p.waitForTimeout(700);
+  await p.screenshot({path:'nf_story.png'});
+  const o0=await p.evaluate('S.oil+" "+S.clears+" "+S.thread');
+  await p.click('[data-act=sweep][data-n="5"]'); await p.waitForTimeout(500);
+  console.log('sweep', o0, '->', await p.evaluate('S.oil+" "+S.clears+" "+S.thread'));
+  await p.screenshot({path:'nf_sweep.png'});
+  await p.click('[data-m=x]'); await p.waitForTimeout(300);
+  await p.evaluate(`go('codex')`); await p.waitForTimeout(800); await p.screenshot({path:'nf_codex1.png'});
+  await p.click('[data-act=dtab][data-t=id]'); await p.waitForTimeout(800); await p.screenshot({path:'nf_codex2.png'});
+  await p.click('[data-act=dtab][data-t=gift]'); await p.waitForTimeout(400);
+  await p.evaluate(`go('home')`); await p.waitForTimeout(500); await p.screenshot({path:'nf_home.png'});
+  console.log('errors',errs.slice(0,6)); await b.close();
+})();

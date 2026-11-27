@@ -1,0 +1,21 @@
+const { chromium } = require('playwright');
+(async()=>{
+  const b = await chromium.launch(); const W=+process.env.W||1280,H=+process.env.H||720;
+  const p = await b.newPage({viewport:{width:W,height:H}});
+  const errs=[]; p.on('pageerror',e=>errs.push('PAGEERR '+e)); p.on('console',m=>{if(m.type()==='error')errs.push(m.text())});
+  await p.goto('file://'+process.cwd()+'/test_full.html'); await p.waitForTimeout(1200);
+  const pre=process.env.PRE||'f';
+  const shot=async(n)=>{await p.waitForTimeout(700);await p.screenshot({path:`${pre}_${n}.png`});};
+  await shot('title');
+  await p.click('[data-act=start]'); await shot('home');
+  await p.click('[data-act=go][data-to=form]'); await shot('form');
+  await p.click('[data-act=back]'); await p.click('[data-act=go][data-to=roster]'); await shot('roster');
+  await p.click('[data-act=rtab][data-t=ego]'); await shot('roster_ego');
+  await p.click('[data-act=back]'); await p.click('[data-act=go][data-to=gacha]'); await shot('gacha');
+  await p.click('[data-act=pull][data-n="10"]'); await p.waitForTimeout(4500); await shot('reveal');
+  await p.click('[data-act=gok]'); await p.waitForTimeout(300);
+  await p.click('[data-act=back]'); await p.click('[data-act=go][data-to=story]'); await p.waitForTimeout(500);
+  await shot('story'); 
+  console.log('errors:',errs.slice(0,10));
+  await b.close();
+})();

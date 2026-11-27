@@ -1,0 +1,6 @@
+src/lampwarden.html
+src/test_full.html
+*.bak*
+*.png
+*.log
+node_modules/
