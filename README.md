@@ -19,3 +19,7 @@ python3 build.py      # -> src/lampwarden.html (公開用) と src/test_full.htm
 cd src && python3 build.py && node ../tests/sim2.js
 ```
 (スクリプトは実行時のカレントディレクトリの `test_full.html` を読みます)
+
+## 公開(GitHub Pages)
+`docs/index.html` が公開用の単一HTMLです(`build.py` が自動で更新)。
+リポジトリの Settings → Pages で Source を `main` / `/docs` に設定すると、URLを知っていれば誰でも遊べます(無料プランでは公開リポジトリが必要)。

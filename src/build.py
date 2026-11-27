@@ -39,3 +39,8 @@ skel = '''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name=
 </head><body>''' + page.replace('<title>灯守カンパニー</title>', '<title>灯守カンパニー</title>') + '</body></html>'
 open(os.path.join(here, 'test_full.html'), 'w', encoding='utf-8').write(skel)
 print('size', len(page.encode('utf-8')) // 1024, 'KB')
+
+# GitHub Pages copy (docs/index.html) -- same single-file build with a real <html> skeleton
+docs = os.path.join(here, '..', 'docs')
+os.makedirs(docs, exist_ok=True)
+open(os.path.join(docs, 'index.html'), 'w', encoding='utf-8').write(skel)
