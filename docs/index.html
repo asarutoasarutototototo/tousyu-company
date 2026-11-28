@@ -619,6 +619,17 @@ svg.arrows{position:absolute;inset:0;width:1280px;height:720px;pointer-events:no
 .slot .to.pul{color:#ffd479}
 .slot .to.bad{color:#ff9a7a}
 
+/* ---- 敵の矢印(見やすく) ---- */
+.earr .ec{filter:none}
+.earr.hi .ec{stroke-width:6}
+.earr.hi .eo{stroke-width:11}
+.earr.mv{opacity:.35}
+#arrows.hasHi .earr:not(.hi){opacity:.3}
+.slot.hit{box-shadow:inset 0 0 0 2px rgba(255,64,87,.95),0 0 10px rgba(255,64,87,.5)}
+.slot.hit.sel{box-shadow:0 0 0 2px #fff,inset 0 0 0 2px rgba(255,64,87,.95),0 0 14px var(--sin)}
+.slot.hit::after{content:attr(data-inc);position:absolute;right:3px;top:2px;padding:0 4px;font-family:var(--f-num),sans-serif;font-weight:700;font-size:9.5px;line-height:14px;color:#fff;background:#d8223a;letter-spacing:.02em}
+.slot.hit .sw{right:52px}
+
 </style>
 <div id="app">
 <canvas id="bgc" aria-hidden="true"></canvas>
@@ -5004,6 +5015,7 @@ class BattleUI {
     this.view.spd = S.set.spd || 1;
     this.fit(); this.buildCards(); this.updateBtns();
     this.onClick = e => this.click(e); this.stage.addEventListener('click', this.onClick); this.bindDrag();
+    this.onHi = e => this.hoverHi(e); this.stage.addEventListener('mouseover', this.onHi);
     this.onResize = () => { this.fit(); this.view.fit(); if (this.phase === 'plan') this.renderArrows(); }; window.addEventListener('resize', this.onResize);
     this.onKey = e => { if (this.phase === 'plan' && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); this.startTurn(); } if (e.key === 'Escape') this.closeMenu(); }; window.addEventListener('keydown', this.onKey);
     this.tickId = requestAnimationFrame(() => this.tick());
@@ -5020,7 +5032,7 @@ class BattleUI {
   }
   destroy() {
     this.alive = false; if (this.view) this.view.stop(); cancelAnimationFrame(this.tickId);
-    this.unbindDrag(); if (this.stage) this.stage.removeEventListener('click', this.onClick); window.removeEventListener('resize', this.onResize); window.removeEventListener('keydown', this.onKey);
+    this.unbindDrag(); if (this.stage) { this.stage.removeEventListener('click', this.onClick); this.stage.removeEventListener('mouseover', this.onHi); } window.removeEventListener('resize', this.onResize); window.removeEventListener('keydown', this.onKey);
     const w = $('#bwrap'); w.hidden = true; w.innerHTML = '';
     $('#scr').hidden = false; $('#topbar').hidden = false; $('#bgc').style.visibility = 'visible'; CURRENT_BATTLE = null;
   }
@@ -5128,18 +5140,35 @@ class BattleUI {
   }
   renderArrows() {
     const B = this.B, svg = $('#arrows'); if (!svg) return; let h = '<defs>';
-    SIN_KEYS.concat(['e']).forEach(k => { const c = k === 'e' ? '#ff4d5e' : SIN[k].c; h += `<marker id="mk-${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`; });
+    SIN_KEYS.concat(['e', 'c']).forEach(k => { const c = k === 'e' ? '#ff4d5e' : k === 'c' ? '#7ee0ff' : SIN[k].c; h += `<marker id="mk-${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`; });
     h += '</defs>'; const st = this.stage;
-    const ctr = el => { const p = posIn(el, st); return { x: p.x + p.w / 2, y: p.y + p.h / 2, t: p.y, b: p.y + p.h, l: p.x, r: p.x + p.w }; };
-    // 敵→味方(奪われた敵スキルは元の矢印を薄くし、奪った味方スキルへ向ける)
+    const sr = st.getBoundingClientRect(), ctr = el => { const p = this.rectOf(el, sr); return { x: p.x + p.w / 2, y: p.y + p.h / 2, t: p.y, b: p.y + p.h, l: p.x, r: p.x + p.w }; };
+    // 敵→味方: 敵スキルのチップの下から、狙われている味方カードの上端まで。太い赤の破線+大きな矢じり+速度バッジ。
+    // (奪われた敵スキルは元の矢印を薄くし、奪った味方スキルへ向ける)
     const pred = B.predict(); this.pred = pred;
+    const eg = {}; // 狙われ先ごとにまとめる(同じ先への矢印は横にずらす)
     B.alive('E').forEach(e => e.slots.forEach(s => {
-      if (!s.target || s.canceled) return; const ce = $(`.chip[data-e="${e.id}"][data-s="${s.i}"]`); if (!ce) return;
-      let tgt = s.target.s != null ? $(`.slot[data-u="${s.target.u}"][data-i="${s.target.s}"]`) : $(`.bcard[data-u="${s.target.u}"]`); if (!tgt) return;
-      const pe = pred.get(s), moved = pe && pe.k === 'pulled' && pe.p && pe.p.u.isAlly && !(pe.p.u.id === s.target.u && pe.p.slot.i === s.target.s);
-      const a = ctr(ce), b = ctr(tgt); h += `<path d="M${a.x} ${a.b} C${a.x} ${a.b + 130} ${b.x} ${b.t - 130} ${b.x} ${b.t - 4}" fill="none" stroke="#ff4d5e" stroke-width="2" stroke-dasharray="5 5" opacity="${moved ? .16 : .5}" marker-end="url(#mk-e)"/>`;
-      if (moved) { const t2 = $(`.slot[data-u="${pe.p.u.id}"][data-i="${pe.p.slot.i}"]`); if (t2) { const b2 = ctr(t2); h += `<path d="M${a.x} ${a.b} C${a.x} ${a.b + 130} ${b2.x} ${b2.t - 130} ${b2.x} ${b2.t - 4}" fill="none" stroke="#7ee0ff" stroke-width="2.5" stroke-dasharray="2 5" opacity=".85" marker-end="url(#mk-e)"/>`; } }
+      if (!s.target || s.canceled || !s.skill) return; const ce = $(`.chip[data-e="${e.id}"][data-s="${s.i}"]`); if (!ce) return;
+      const key = s.target.u + ':' + (s.target.s == null ? 'u' : s.target.s); (eg[key] = eg[key] || []).push({ e, s, ce });
     }));
+    const hitSlots = [];
+    Object.keys(eg).forEach(key => {
+      const list = eg[key], f = list[0].s.target, cardEl = $(`.bcard[data-u="${f.u}"]`), slotEl = f.s != null ? $(`.slot[data-u="${f.u}"][data-i="${f.s}"]`) : null, tgt = slotEl || cardEl; if (!tgt || !cardEl) return;
+      const tr = ctr(tgt), cr = ctr(cardEl), by = Math.min(tr.t, cr.t) - 6; if (slotEl) hitSlots.push([slotEl, list.length]);
+      list.forEach((o, i) => {
+        const c = ctr(o.ce), ax = c.x, ay = c.b, bx = tr.x + (i - (list.length - 1) / 2) * 24, pe = pred.get(o.s), sin = SIN[o.s.skill.sin].c;
+        const moved = pe && pe.k === 'pulled' && pe.p && pe.p.u.isAlly && !(pe.p.u.id === o.s.target.u && pe.p.slot.i === o.s.target.s);
+        const sel = this.sel && this.sel.u === o.s.target.u && this.sel.i === o.s.target.s;
+        const d = `M${ax.toFixed(1)} ${ay.toFixed(1)} C${ax.toFixed(1)} ${(ay + 110).toFixed(1)} ${bx.toFixed(1)} ${(by - 16 - 110).toFixed(1)} ${bx.toFixed(1)} ${(by - 16).toFixed(1)}`;
+        h += `<g class="earr${moved ? ' mv' : ''}" data-e="${o.e.id}" data-s="${o.s.i}" data-tu="${o.s.target.u}" data-ts="${o.s.target.s == null ? 'u' : o.s.target.s}"${sel ? ' data-sel="1"' : ''}>`
+          + `<path class="eo" d="${d}" fill="none" stroke="rgba(0,0,0,.7)" stroke-width="8" stroke-linecap="round"/>`
+          + `<path class="ec" d="${d}" fill="none" stroke="#ff4057" stroke-width="4" stroke-linecap="round" stroke-dasharray="${moved ? '3 8' : '13 7'}"/>`
+          + `<polygon points="${bx.toFixed(1)},${by.toFixed(1)} ${(bx - 10).toFixed(1)},${(by - 17).toFixed(1)} ${(bx + 10).toFixed(1)},${(by - 17).toFixed(1)}" fill="#ff4057" stroke="rgba(0,0,0,.75)" stroke-width="2" stroke-linejoin="round"/>`
+          + `<circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="5" fill="#ff4057" stroke="#fff" stroke-width="1.5"/>`
+          + `<g transform="translate(${bx.toFixed(1)} ${(by - 30).toFixed(1)})"><rect x="-13" y="-10" width="26" height="19" fill="${sin}" stroke="#08060e" stroke-width="2"/><text x="0" y="5" text-anchor="middle" style="font:700 14px var(--f-num),sans-serif" fill="#0a0610">${o.s.spd}</text></g></g>`;
+        if (moved) { const t2 = $(`.slot[data-u="${pe.p.u.id}"][data-i="${pe.p.slot.i}"]`); if (t2) { const b2 = ctr(t2), by2 = Math.min(b2.t, ctr($(`.bcard[data-u="${pe.p.u.id}"]`) || t2).t) - 6; h += `<path d="M${ax.toFixed(1)} ${ay.toFixed(1)} C${ax.toFixed(1)} ${(ay + 110).toFixed(1)} ${b2.x.toFixed(1)} ${(by2 - 126).toFixed(1)} ${b2.x.toFixed(1)} ${(by2 - 4).toFixed(1)}" fill="none" stroke="#7ee0ff" stroke-width="3.5" stroke-dasharray="3 6" stroke-linecap="round" opacity=".95" marker-end="url(#mk-c)" style="filter:drop-shadow(0 0 3px #000)"/>`; } }
+      });
+    });
     // 味方→敵
     B.alive('A').forEach(u => u.slots.forEach(s => {
       const sk = s.skill; if (!sk || !s.target || (sk.kind !== 'atk' && !sk.ego)) return;
@@ -5148,7 +5177,7 @@ class BattleUI {
       let b, wr = null, tag = null; const vu = this.view.vus[tu.id];
       const pr = pred.get(s), pp = pr && pr.p && pr.k !== 'one' && pr.p.slot.skill ? pr.p : null;
       const ce = pp ? $(`.chip[data-e="${pp.u.id}"][data-s="${pp.slot.i}"]`) : null;
-      if (ce) { const p = ctr(ce); b = { x: p.x - 66, y: p.y, end: 1 }; wr = this.winRate(u, sk, pp.u, pp.slot.skill); tag = pr.k === 'steal' ? ['奪取', '#7ee0ff'] : pr.k === 'pulled' ? ['敵に引かれる', '#ffd479'] : null; }
+      if (ce) { const p = ctr(ce); b = { x: p.l, y: p.y, end: 1 }; wr = this.winRate(u, sk, pp.u, pp.slot.skill); tag = pr.k === 'steal' ? ['奪取', '#7ee0ff'] : pr.k === 'pulled' ? ['敵に引かれる', '#ffd479'] : null; }
       else { b = { x: vu.px, y: vu.py - vu.ph * .55 }; if (s.target.s != null && pr && pr.k === 'one' && pr.why) tag = ['✕ ' + pr.why, '#ff9a7a']; }
       const c = SIN[sk.sin].c, sel = this.sel && this.sel.u === u && this.sel.i === s.i;
       h += `<path d="M${a.x} ${a.t} C${a.x} ${a.t - 150} ${b.x - 50} ${b.y + 40} ${b.x} ${b.y}" fill="none" stroke="${c}" stroke-width="${sel ? 4.5 : 3}" opacity="${sel ? 1 : .85}" marker-end="url(#mk-${sk.sin})" style="filter:drop-shadow(0 0 4px ${c})"${tag && !ce ? ' stroke-dasharray="7 6"' : ''}/>`;
@@ -5159,10 +5188,13 @@ class BattleUI {
     B.alive('A').forEach(u => u.slots.forEach(s => {
       const sk = s.skill; if (!sk || !s.dtarget || (sk.kind === 'atk' || sk.ego)) return;
       const se = $(`.slot[data-u="${u.id}"][data-i="${s.i}"]`), ce = $(`.chip[data-e="${s.dtarget.u}"][data-s="${s.dtarget.s}"]`); if (!se || !ce) return;
-      const a = ctr(se), p = ctr(ce), b = { x: p.x - 66, y: p.y };
+      const a = ctr(se), p = ctr(ce), b = { x: p.l, y: p.y };
       h += `<path d="M${a.x} ${a.t} C${a.x} ${a.t - 150} ${b.x - 50} ${b.y + 40} ${b.x} ${b.y}" fill="none" stroke="#7ec8ff" stroke-width="3" stroke-dasharray="3 6" opacity=".9" marker-end="url(#mk-e)" style="filter:drop-shadow(0 0 4px #7ec8ff)"/>`;
     }));
     svg.innerHTML = h;
+    $$('.slot.hit').forEach(x => { x.classList.remove('hit'); delete x.dataset.inc; });
+    hitSlots.forEach(([el, n]) => { el.classList.add('hit'); el.dataset.inc = n > 1 ? '←敵×' + n : '←敵'; });
+    this.applyHi();
     // ターゲットされているチップを強調
     $$('.chip').forEach(c => { c.classList.remove('targeted'); delete c.dataset.m; });
     B.alive('E').forEach(e => e.slots.forEach(s => {
@@ -5205,6 +5237,23 @@ class BattleUI {
     const r = r0 || this.stage.getBoundingClientRect(), s = this.scale || 1;
     return this.rot ? { x: (cy - r.top) / s, y: (r.right - cx) / s } : { x: (cx - r.left) / s, y: (cy - r.top) / s };
   }
+  /* 要素の見た目どおりの矩形(ステージ座標)。CSS transform や縦持ちの回転があっても正しい */
+  rectOf(el, sr) {
+    const r = el.getBoundingClientRect(); sr = sr || this.stage.getBoundingClientRect();
+    const a = this.toStage(r.left, r.top, sr), b = this.toStage(r.right, r.bottom, sr);
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+  }
+  /* チップ/スロットにマウスを乗せたら、関係する敵の矢印を強調して他を薄くする */
+  hoverHi(e) {
+    const c = e.target.closest ? e.target.closest('.chip,.slot') : null;
+    const key = c ? (c.classList.contains('chip') ? 'c:' + c.dataset.e + ':' + c.dataset.s : 's:' + c.dataset.u + ':' + c.dataset.i) : null;
+    if (key !== this.hiKey) { this.hiKey = key; this.applyHi(); }
+  }
+  applyHi() {
+    const svg = $('#arrows'); if (!svg) return; let any = false;
+    $$('.earr', svg).forEach(g => { const on = (!!this.hiKey && (this.hiKey === `c:${g.dataset.e}:${g.dataset.s}` || this.hiKey === `s:${g.dataset.tu}:${g.dataset.ts}`)) || g.dataset.sel === '1'; g.classList.toggle('hi', on); any = any || on; });
+    svg.classList.toggle('hasHi', any);
+  }
   bindDrag() {
     this.pd = e => this.onPD(e); this.pm = e => this.onPM(e); this.pu = e => this.onPU(e);
     this.stage.addEventListener('pointerdown', this.pd);
@@ -5227,7 +5276,7 @@ class BattleUI {
   }
   beginDrag(p) {
     p.drag = true; this.sel = { u: p.u.id, i: p.s.i }; this.closeMenu(); this.markSel(); SFX.play('pick');
-    const sp = posIn(p.el, this.stage); p.sx = sp.x + sp.w / 2; p.sy = sp.y + 2; p.cx = p.sx; p.cy = p.sy - 30; p.tx = p.cx; p.ty = p.cy; p.over = null;
+    const sp = this.rectOf(p.el); p.sx = sp.x + sp.w / 2; p.sy = sp.y + 2; p.cx = p.sx; p.cy = p.sy - 30; p.tx = p.cx; p.ty = p.cy; p.over = null;
     // 当たり判定の領域をステージ座標で先に集めておく(ドラッグ中はレイアウトを読まない)
     p.sr = this.stage.getBoundingClientRect();
     const rc = el => { const r = el.getBoundingClientRect(), a = this.toStage(r.left, r.top, p.sr), b = this.toStage(r.right, r.bottom, p.sr); return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }; };
