@@ -1,0 +1,24 @@
+const { chromium } = require('playwright');
+(async()=>{
+  const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:720}}); const p = await ctx.newPage();
+  await p.goto('file://'+process.cwd()+'/test_full.html'); await p.waitForTimeout(1200);
+  await p.click('[data-act=start]').catch(()=>{}); await p.waitForTimeout(300);
+  const skip=async()=>{ for(let i=0;i<40;i++){ if(await p.$('#dialog:not([hidden])')){ await p.click('#dialog .dbox',{timeout:800,force:true}).catch(()=>{}); await p.waitForTimeout(300);} else if(i>3) break; else await p.waitForTimeout(150);} };
+  await skip();
+  await p.evaluate(()=>{ STAGES.forEach(s=>{if(s.ch<3)S.cleared[s.id]=1}); S.seen['pre:1-1']=1; S.oil=99; saveState(); go('story',{st:'1-3'}); }); await p.waitForTimeout(500); await skip();
+  await p.click('[data-act=stgo]',{force:true}); await p.waitForTimeout(600); await skip();
+  await p.waitForSelector('#bwrap:not([hidden]) .slot',{timeout:10000}); await p.waitForTimeout(1500);
+  const measure = async(label)=>{ const r=await p.evaluate(()=>new Promise(res=>{ const f=[]; let last=performance.now(); const loop=ts=>{ f.push(ts-last); last=ts; if(f.length<50) requestAnimationFrame(loop); else { f.shift(); f.sort((a,b)=>a-b); res({p50:+f[Math.floor(f.length*.5)].toFixed(1),p90:+f[Math.floor(f.length*.9)].toFixed(1)}); } }; requestAnimationFrame(loop); })); console.log(label.padEnd(34), JSON.stringify(r)); };
+  await measure('baseline');
+  const css = async(id,txt)=>p.evaluate(([id,txt])=>{ let s=document.getElementById(id); if(!s){ s=document.createElement('style'); s.id=id; document.head.appendChild(s);} s.textContent=txt; },[id,txt]);
+  await css('x1','*{animation:none!important;transition:none!important}'); await measure('no animation/transition');
+  await css('x2','*{filter:none!important;backdrop-filter:none!important;box-shadow:none!important;text-shadow:none!important}'); await measure('+ no filter/shadow');
+  await css('x1',''); await css('x2',''); 
+  await p.evaluate(()=>{ document.querySelector('#bcv').style.visibility='hidden'; }); await measure('canvas hidden');
+  await p.evaluate(()=>{ document.querySelector('#bcv').style.visibility=''; CURRENT_BATTLE.view.running=false; }); await measure('view loop stopped');
+  await p.evaluate(()=>{ CURRENT_BATTLE.view.start(); document.querySelector('#arrows').style.display='none'; }); await measure('arrows svg hidden');
+  await p.evaluate(()=>{ document.querySelector('#arrows').style.display=''; document.querySelector('#cards').style.display='none'; }); await measure('cards hidden');
+  await p.evaluate(()=>{ document.querySelector('#cards').style.display=''; document.querySelector('#intents').style.display='none'; }); await measure('intents hidden');
+  await p.evaluate(()=>{ document.querySelector('#intents').style.display=''; document.querySelector('#bgc').style.display='none'; }); await measure('page bg canvas hidden');
+  await b.close();
+})();

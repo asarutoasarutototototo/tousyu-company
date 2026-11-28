@@ -82,7 +82,7 @@ class BattleView {
   }
   /* フレーム毎に fn(p) を呼ぶ汎用アニメ */
   anim(ms, fn, ef) { return new Promise(res => this.anims.push({ t0: this.clock, d: Math.max(1, ms), fn, e: ef || (p => p), res })); }
-  start() { if (this.running) return; this.running = true; this.last = performance.now(); const loop = (ts) => { if (!this.running) return; const dt = Math.min(.05, (ts - this.last) / 1000); this.last = ts; this.frame(dt); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
+  start() { if (this.running) return; this.running = true; this.last = performance.now(); this.acc = 0; const loop = (ts) => { if (!this.running) return; const raw = (ts - this.last) / 1000; this.last = ts; if (this.slow) { this.acc += raw; if (this.acc < this.slow) { requestAnimationFrame(loop); return; } const d2 = Math.min(.1, this.acc); this.acc = 0; this.frame(d2); } else { this.acc = 0; this.frame(Math.min(.05, raw)); } requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
   stop() { this.running = false; }
   frame(dt) {
     let edt = dt; if (this.hold > 0) { this.hold -= dt * 1000; edt = dt * .06; }

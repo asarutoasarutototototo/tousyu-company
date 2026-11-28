@@ -362,7 +362,7 @@ svg.arrows{position:absolute;inset:0;width:1280px;height:720px;pointer-events:no
 @keyframes assignedP{0%{box-shadow:0 0 0 3px #fff,0 0 24px var(--sin);transform:scale(1.05)}100%{box-shadow:none;transform:none}}
 .slot.dragsrc{filter:brightness(1.4);box-shadow:0 0 0 2px #fff,0 0 20px var(--sin);transform:scale(1.04);z-index:6;cursor:grabbing;animation:none}
 .slot.sel{box-shadow:0 0 0 2px #fff,0 0 16px var(--sin)}
-.dragging .slot:not(.dragsrc){opacity:.5}
+.dragging .slot:not(.dragsrc){opacity:.5;transition:opacity .08s}
 .dragging .menu{display:none}
 .dragging *{cursor:grabbing!important}
 /* 敵側: ドロップ先の強調 */
@@ -374,7 +374,7 @@ svg.arrows{position:absolute;inset:0;width:1280px;height:720px;pointer-events:no
 .hot.over{outline:2px solid #fff;background:radial-gradient(ellipse at 50% 55%,rgba(255,255,255,.26),transparent 72%)}
 .hot{cursor:default}
 .itn .en{align-self:center;min-width:36px;padding:0 8px;font-family:var(--f-num);font-size:12px;font-weight:700;line-height:17px;text-align:center;background:rgba(8,5,16,.92);border:1px solid rgba(255,255,255,.4);color:#fff;letter-spacing:.08em}
-#wrbub{position:absolute;z-index:9;pointer-events:none;padding:2px 10px 3px;background:rgba(6,3,12,.94);border:2px solid #fff;font-family:var(--f-num);font-weight:700;font-size:24px;line-height:1.05;text-align:center;box-shadow:0 0 16px rgba(0,0,0,.7)}
+#wrbub{position:absolute;left:0;top:0;will-change:transform;z-index:9;pointer-events:none;padding:2px 10px 3px;background:rgba(6,3,12,.94);border:2px solid #fff;font-family:var(--f-num);font-weight:700;font-size:24px;line-height:1.05;text-align:center;box-shadow:0 0 16px rgba(0,0,0,.7)}
 #wrbub small{display:block;font-size:9.5px;letter-spacing:.2em;opacity:.8}
 .startbtn{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1.1}
 .startbtn em{font-style:normal;font-size:11px;font-family:var(--f-num);letter-spacing:.1em;opacity:.9}

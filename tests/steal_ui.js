@@ -33,6 +33,7 @@ const { chromium } = require('playwright');
   console.log('chip tags:', await p.evaluate(()=>[...document.querySelectorAll('.chip')].map(c=>c.dataset.d+':'+c.dataset.dt).join(' | ')));
   await p.mouse.up(); await p.waitForTimeout(600);
   await p.screenshot({path:'steal_3_after.png'});
+  console.log('view.slow after drop:', await p.evaluate(()=>CURRENT_BATTLE.view.slow));
   console.log('toast:', await p.evaluate(()=>document.querySelector('#toast').innerText));
   console.log('pred A:', await p.evaluate(({A})=>{const B=CURRENT_BATTLE.B; const s=B.U(A).slots[0]; const r=B.predict(); return r.get(s).k+' / B:'+r.get(B.alive('A')[1].slots[0]).k;},prep));
   console.log('slot labels:', await p.evaluate(()=>[...document.querySelectorAll('.slot .to')].map(x=>x.textContent).join(' | ')));

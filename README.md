@@ -34,4 +34,6 @@ node ../tests/smoke_mobile.js   # スマホ幅の横はみ出し確認
 node ../tests/steal.js          # マッチ奪い(速度奪取)の決定的テスト
 node ../tests/pred.js           # マッチ予測と実際の戦闘結果の一致率
 node ../tests/steal_ui.js       # 戦闘画面でのドラッグ奪取(スクショ steal_*.png)
+node ../tests/steal_ui_mobile.js # 同・スマホ縦持ち
+node ../tests/perf_one.js       # ドラッグ中のフレーム間隔の計測(perf_drag2/idle/render は詳細版)
 ```

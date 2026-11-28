@@ -74,6 +74,7 @@ class BattleUI {
   }
   tick() {
     if (!this.alive) return; const v = this.view, B = this.B;
+    if (v.slow && !(this.pend && this.pend.drag)) v.slow = 0; // ドラッグが終わっているのに描画の間引きが残らないように
     $('#turnN').textContent = (B.turn || 1) + (B.turnLimit ? '/' + B.turnLimit : '');
     B.side('A').forEach(u => {
       const el = $(`.bcard[data-u="${u.id}"]`); if (!el) return; const vu = v.vus[u.id], d = vu.d; if (!d) return;
@@ -109,7 +110,7 @@ class BattleUI {
   }
   /* ---------- 計画フェーズ ---------- */
   renderPlan() {
-    const B = this.B; this.phase = 'plan'; this.sel = null; this.closeMenu(); this.pred = B.predict();
+    const B = this.B; this.phase = 'plan'; this.sel = null; this.closeMenu(); this.pred = B.predict(); this.wrc = new Map();
     $('#cards').classList.remove('low'); $('#side').classList.remove('hide');
     // スロット
     B.side('A').forEach(u => {
@@ -179,7 +180,7 @@ class BattleUI {
       let b, wr = null, tag = null; const vu = this.view.vus[tu.id];
       const pr = pred.get(s), pp = pr && pr.p && pr.k !== 'one' && pr.p.slot.skill ? pr.p : null;
       const ce = pp ? $(`.chip[data-e="${pp.u.id}"][data-s="${pp.slot.i}"]`) : null;
-      if (ce) { const p = ctr(ce); b = { x: p.x - 66, y: p.y, end: 1 }; wr = B.estWin(u, sk, pp.u, pp.slot.skill, 120); tag = pr.k === 'steal' ? ['奪取', '#7ee0ff'] : pr.k === 'pulled' ? ['敵に引かれる', '#ffd479'] : null; }
+      if (ce) { const p = ctr(ce); b = { x: p.x - 66, y: p.y, end: 1 }; wr = this.winRate(u, sk, pp.u, pp.slot.skill); tag = pr.k === 'steal' ? ['奪取', '#7ee0ff'] : pr.k === 'pulled' ? ['敵に引かれる', '#ffd479'] : null; }
       else { b = { x: vu.px, y: vu.py - vu.ph * .55 }; if (s.target.s != null && pr && pr.k === 'one' && pr.why) tag = ['✕ ' + pr.why, '#ff9a7a']; }
       const c = SIN[sk.sin].c, sel = this.sel && this.sel.u === u && this.sel.i === s.i;
       h += `<path d="M${a.x} ${a.t} C${a.x} ${a.t - 150} ${b.x - 50} ${b.y + 40} ${b.x} ${b.y}" fill="none" stroke="${c}" stroke-width="${sel ? 4.5 : 3}" opacity="${sel ? 1 : .85}" marker-end="url(#mk-${sk.sin})" style="filter:drop-shadow(0 0 4px ${c})"${tag && !ce ? ' stroke-dasharray="7 6"' : ''}/>`;
@@ -232,8 +233,8 @@ class BattleUI {
   }
   markSel() { $$('.slot').forEach(b => b.classList.toggle('sel', !!this.sel && +b.dataset.u === this.sel.u && +b.dataset.i === this.sel.i)); }
   /* ---------- ドラッグで標的指定 ---------- */
-  toStage(cx, cy) {
-    const r = this.stage.getBoundingClientRect(), s = this.scale || 1;
+  toStage(cx, cy, r0) {
+    const r = r0 || this.stage.getBoundingClientRect(), s = this.scale || 1;
     return this.rot ? { x: (cy - r.top) / s, y: (r.right - cx) / s } : { x: (cx - r.left) / s, y: (cy - r.top) / s };
   }
   bindDrag() {
@@ -251,15 +252,26 @@ class BattleUI {
   onPM(e) {
     const p = this.pend; if (!p || e.pointerId !== p.id) return;
     if (!p.drag) {
-      if (Math.hypot(e.clientX - p.x0, e.clientY - p.y0) < 8) return;
-      this.beginDrag(p);
+      if (Math.hypot(e.clientX - p.x0, e.clientY - p.y0) < (e.pointerType === 'mouse' ? 5 : 8)) return;
+      this.beginDrag(p); e.preventDefault(); p.lx = e.clientX; p.ly = e.clientY; this.dragMove(); return;
     }
-    e.preventDefault(); this.dragMove(e);
+    e.preventDefault(); p.lx = e.clientX; p.ly = e.clientY; p.dirty = true; // 当たり判定とバブル更新は次の描画フレームで1回だけ
   }
   beginDrag(p) {
     p.drag = true; this.sel = { u: p.u.id, i: p.s.i }; this.closeMenu(); this.markSel(); SFX.play('pick');
     const sp = posIn(p.el, this.stage); p.sx = sp.x + sp.w / 2; p.sy = sp.y + 2; p.cx = p.sx; p.cy = p.sy - 30; p.tx = p.cx; p.ty = p.cy; p.over = null;
-    p.el.classList.add('dragsrc'); this.stage.classList.add('dragging'); this.renderArrows(); this.markDragChips(p);
+    // 当たり判定の領域をステージ座標で先に集めておく(ドラッグ中はレイアウトを読まない)
+    p.sr = this.stage.getBoundingClientRect();
+    const rc = el => { const r = el.getBoundingClientRect(), a = this.toStage(r.left, r.top, p.sr), b = this.toStage(r.right, r.bottom, p.sr); return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }; };
+    p.nf = 0; p.heavy = 0; p.lastT = 0; p.hits = []; $$('.chip').forEach(el => p.hits.push({ k: 'chip', el, e: +el.dataset.e, s: +el.dataset.s, r: rc(el) })); $$('.hot').forEach(el => p.hits.push({ k: 'hot', el, e: +el.dataset.e, s: null, r: rc(el) }));
+    p.el.classList.add('dragsrc'); this.stage.classList.add('dragging'); this.initDragSvg(p); this.renderArrows(); this.markDragChips(p);
+    if (this.view) this.view.slow = 1 / 20; // ドラッグ中は背景の描画を間引いて、矢印の追従を最優先にする
+  }
+  /* ドラッグ矢印の要素は最初に1度だけ作り、以後は属性だけ更新する(再生成・CSSフィルタなし) */
+  initDragSvg(p) {
+    const svg = $('#dragsvg'); if (!svg) return; const c = SIN[p.s.skill.sin].c;
+    svg.innerHTML = `<path class="dg-glow" fill="none" stroke="${c}" stroke-width="15" stroke-linecap="round" opacity=".28"/><path class="dg-bk" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="9" stroke-linecap="round"/><path class="dg-c" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 9"/><path class="dg-w" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".8"/><polygon class="dg-h" fill="${c}"/><circle class="dg-o" r="6" fill="${c}" stroke="#fff" stroke-width="2" cx="${p.sx}" cy="${p.sy}"/>`;
+    p.sv = { g: $('.dg-glow', svg), k: $('.dg-bk', svg), c: $('.dg-c', svg), w: $('.dg-w', svg), h: $('.dg-h', svg), snap: false, col: c };
   }
   /* ドラッグ中: 各敵スキルに「奪取OK / 合戦 / 速度負け…」のタグを表示する */
   markDragChips(p) {
@@ -273,58 +285,100 @@ class BattleUI {
     });
   }
   clearDragChips() { $$('.chip').forEach(c => { delete c.dataset.d; delete c.dataset.dt; }); }
-  dragMove(e) {
-    const p = this.pend, pt = this.toStage(e.clientX, e.clientY); p.px = pt.x; p.py = pt.y;
-    const el = document.elementFromPoint(e.clientX, e.clientY), chip = el && el.closest('.chip'), hot = el && el.closest('.hot');
-    const over = chip ? { k: 'chip', el: chip, e: +chip.dataset.e, s: +chip.dataset.s } : hot ? { k: 'hot', el: hot, e: +hot.dataset.e, s: null } : null;
+  /* 勝率(モンテカルロ)は計画中は変わらないのでキャッシュする */
+  winRate(u, sk, pu, psk, n) {
+    const key = u.id + '|' + sk.key + sk.n + '|' + pu.id + '|' + psk.key + psk.n, c = this.wrc || (this.wrc = new Map()); let v = c.get(key);
+    if (v === undefined) { v = this.B.estWin(u, sk, pu, psk, n || 200); c.set(key, v); } return v;
+  }
+  /* ポインタ位置(ステージ座標)の下にある敵スキル/敵本体。スキルは少し広めに判定する */
+  hitAt(p, x, y) {
+    let best = null, bd = 1e9;
+    for (const h of p.hits) { if (h.k !== 'chip') continue; const r = h.r, pad = 6; if (x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad) { const d = Math.hypot(x - (r.x + r.w / 2), y - (r.y + r.h / 2)); if (d < bd) { bd = d; best = h; } } }
+    if (best) return best;
+    for (let i = p.hits.length - 1; i >= 0; i--) { const h = p.hits[i]; if (h.k === 'hot' && x >= h.r.x && x <= h.r.x + h.r.w && y >= h.r.y && y <= h.r.y + h.r.h) return h; }
+    return null;
+  }
+  dragMove() {
+    const p = this.pend; if (!p || !p.drag) return; const pt = this.toStage(p.lx, p.ly, p.sr); p.px = pt.x; p.py = pt.y;
+    const over = this.hitAt(p, pt.x, pt.y);
     if (!p.over || !over || p.over.el !== over.el) { if (p.over) p.over.el.classList.remove('over'); if (over) { over.el.classList.add('over'); SFX.play('pick'); } p.over = over; p.wr = null; }
     if (over) {
-      const q = posIn(over.el, this.stage);
+      const q = over.r;
       if (over.k === 'chip') { p.tx = q.x + 4; p.ty = q.y + q.h / 2; } else { p.tx = q.x + q.w / 2; p.ty = q.y + q.h * .45; }
-      if (p.wr == null && p.s.skill.kind !== 'atk' && !p.s.skill.ego) { const tu = this.B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null; const ok = ts && ts.skill && ts.skill.kind === 'atk' && !ts.used && !ts.canceled && tu.stag <= 0 && this.B.stealable(p.u, p.s, tu, ts); p.tsSpd = ts ? ts.spd : null; p.cs = 'dfn'; p.wr = !ts ? -5 : ok ? -3 : -4; p.rng = null; }
-      else if (p.wr == null) {
-        const B = this.B, tu = B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null;
-        const pr = B.predictWith(p.s, { target: { u: tu.id, s: ts ? ts.i : null } }), pp = pr && pr.p && pr.k !== 'one' && pr.p.slot.skill ? pr.p : null;
-        let cs = 'none'; if (pr) { if (pr.k === 'steal') cs = 'steal'; else if (pr.k === 'clash') cs = 'mutual'; else if (pr.k === 'pulled') cs = 'pulled'; else if (ts) cs = /速度|同速/.test(pr.why || '') ? 'slow' : 'prot'; }
-        p.tsSpd = ts ? ts.spd : null; p.why = pr && pr.why || '';
-        p.rng = { a: B.powerRange(p.u, p.s.skill, tu), b: pp ? B.powerRange(pp.u, pp.slot.skill, p.u) : null, rt: tu.rt[p.s.skill.type] || 1, ty: p.s.skill.type }; p.cs = cs;
-        p.wr = pp ? B.estWin(p.u, p.s.skill, pp.u, pp.slot.skill, 140) : (ts && pr && pr.k === 'one') ? -2 : -1;
-      }
+      if (p.wr == null) this.evalOver(p, over);
     } else { p.tx = pt.x; p.ty = pt.y; }
+  }
+  /* いまのドラッグ先に落としたときの結果(奪取/合戦/直接攻撃…)を求める */
+  evalOver(p, over) {
+    const B = this.B, tu = B.U(over.e), ts = over.s != null ? tu.slots[over.s] : null;
+    if (p.s.skill.kind !== 'atk' && !p.s.skill.ego) {
+      const ok = ts && ts.skill && ts.skill.kind === 'atk' && !ts.used && !ts.canceled && tu.stag <= 0 && B.stealable(p.u, p.s, tu, ts);
+      p.tsSpd = ts ? ts.spd : null; p.cs = 'dfn'; p.wr = !ts ? -5 : ok ? -3 : -4; p.rng = null; return;
+    }
+    const pr = B.predictWith(p.s, { target: { u: tu.id, s: ts ? ts.i : null } }), pp = pr && pr.p && pr.k !== 'one' && pr.p.slot.skill ? pr.p : null;
+    let cs = 'none'; if (pr) { if (pr.k === 'steal') cs = 'steal'; else if (pr.k === 'clash') cs = 'mutual'; else if (pr.k === 'pulled') cs = 'pulled'; else if (ts) cs = /速度|同速/.test(pr.why || '') ? 'slow' : 'prot'; }
+    p.tsSpd = ts ? ts.spd : null; p.why = pr && pr.why || '';
+    p.rng = { a: B.powerRange(p.u, p.s.skill, tu), b: pp ? B.powerRange(pp.u, pp.slot.skill, p.u) : null, rt: tu.rt[p.s.skill.type] || 1, ty: p.s.skill.type }; p.cs = cs;
+    p.wr = pp ? this.winRate(p.u, p.s.skill, pp.u, pp.slot.skill) : (ts && pr && pr.k === 'one') ? -2 : -1;
+  }
+  /* 勝率バブルの内容 [色, HTML] */
+  bubbleOf(p) {
+    if (!p.over || p.wr == null) return null;
+    if (p.wr >= 0) { const col = p.wr >= .6 ? '#7ee08a' : p.wr >= .4 ? '#ffd479' : '#ff6b6b'; return [col, `<small>${p.cs === 'steal' ? '奪取 速度' + p.s.spd + '>' + p.tsSpd + '・勝率' : p.cs === 'pulled' ? '別の合戦に引かれる・勝率' : '勝率'}</small>${Math.round(p.wr * 100)}%${rngHtml(p)}`]; }
+    if (p.wr === -2) return ['#ff9a7a', (p.cs === 'slow' ? `<small>${p.s.spd === p.tsSpd ? '同速は奪えない' : '速度不足'} ${p.s.spd}≦${p.tsSpd}</small>直接攻撃` : `<small>${esc(p.why || 'マッチ不可')}</small>直接攻撃`) + rngHtml(p)];
+    if (p.wr === -3 || p.wr === -4 || p.wr === -5) { const m = { '-3': ['#7ee08a', '速度で先に回避 ' + p.s.spd + '>' + p.tsSpd, '奪取して使用'], '-4': ['#ffd479', '速度不足 ' + p.s.spd + '≦' + p.tsSpd, '受け身の防御'], '-5': ['#ff9a7a', '敵スキルを選択', '敵本体は不可'] }[p.wr]; return [m[0], `<small>${m[1]}</small>${m[2]}`]; }
+    if (p.wr === -1) return ['#ffd479', '<small>直接攻撃</small>' + rngHtml(p)];
+    return null;
   }
   dragFrame() {
     const p = this.pend, svg = $('#dragsvg'), bub = $('#wrbub'); if (!svg) return;
-    if (!p || !p.drag) { if (svg.innerHTML) { svg.innerHTML = ''; } if (bub && !bub.hidden) bub.hidden = true; return; }
-    const k = .38; p.cx += (p.tx - p.cx) * k; p.cy += (p.ty - p.cy) * k;
-    const c = SIN[p.s.skill.sin].c, a = { x: p.sx, y: p.sy }, b = { x: p.cx, y: p.cy }, snap = !!p.over;
-    const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), lift = Math.min(170, 60 + L * .35);
-    const c1 = { x: a.x, y: a.y - lift }, c2 = { x: b.x - dx * .25, y: b.y + (snap ? 50 : 30) + Math.min(60, L * .1) };
-    // 矢じり
-    const ang = Math.atan2(b.y - c2.y, b.x - c2.x), ah = 16, hx1 = b.x - Math.cos(ang - .45) * ah, hy1 = b.y - Math.sin(ang - .45) * ah, hx2 = b.x - Math.cos(ang + .45) * ah, hy2 = b.y - Math.sin(ang + .45) * ah;
-    svg.innerHTML = `<g style="filter:drop-shadow(0 0 7px ${c})"><path d="M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="9" stroke-linecap="round"/><path d="M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${snap ? '0' : '2 9'}"/><path d="M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".8"/><polygon points="${b.x},${b.y} ${hx1},${hy1} ${hx2},${hy2}" fill="${snap ? '#fff' : c}"/><circle cx="${a.x}" cy="${a.y}" r="6" fill="${c}" stroke="#fff" stroke-width="2"/></g>`;
-    if (snap && p.wr != null && p.wr >= 0) { const col = p.wr >= .6 ? '#7ee08a' : p.wr >= .4 ? '#ffd479' : '#ff6b6b'; bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = col; bub.style.borderColor = col; bub.innerHTML = `<small>${p.cs === 'steal' ? '奪取 速度' + p.s.spd + '>' + p.tsSpd + '・勝率' : p.cs === 'pulled' ? '別の合戦に引かれる・勝率' : '勝率'}</small>${Math.round(p.wr * 100)}%${rngHtml(p)}`; }
-    else if (snap && p.wr === -2) { bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = '#ff9a7a'; bub.style.borderColor = '#ff9a7a'; bub.innerHTML = (p.cs === 'slow' ? `<small>${p.s.spd === p.tsSpd ? '同速は奪えない' : '速度不足'} ${p.s.spd}≦${p.tsSpd}</small>直接攻撃` : `<small>${esc(p.why || 'マッチ不可')}</small>直接攻撃`) + rngHtml(p); }
-    else if (snap && (p.wr === -3 || p.wr === -4 || p.wr === -5)) { const m = { '-3': ['#7ee08a', '速度で先に回避 ' + p.s.spd + '>' + p.tsSpd, '奪取して使用'], '-4': ['#ffd479', '速度不足 ' + p.s.spd + '≦' + p.tsSpd, '受け身の防御'], '-5': ['#ff9a7a', '敵スキルを選択', '敵本体は不可'] }[p.wr]; bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = m[0]; bub.style.borderColor = m[0]; bub.innerHTML = `<small>${m[1]}</small>${m[2]}`; }
-    else if (snap && p.wr === -1) { bub.hidden = false; bub.style.left = (b.x + 14) + 'px'; bub.style.top = (b.y - 46) + 'px'; bub.style.color = '#ffd479'; bub.style.borderColor = '#ffd479'; bub.innerHTML = '<small>直接攻撃</small>' + rngHtml(p); }
-    else bub.hidden = true;
+    if (!p || !p.drag) { if (svg.firstChild) svg.innerHTML = ''; if (bub && !bub.hidden) bub.hidden = true; return; }
+    const sv = p.sv; if (!sv) return;
+    // 端末が重くフレームが落ちるときは、ドラッグ中だけ背景の描画を止めて矢印の追従を守る
+    const now = performance.now(); if (p.lastT && ++p.nf > 4 && now - p.lastT > 30 && ++p.heavy >= 3 && this.view) this.view.slow = 99; p.lastT = now;
+    if (p.dirty) { p.dirty = false; this.dragMove(); }
+    const snap = !!p.over, k = snap ? .72 : 1; // 自由移動中はポインタに直接追従。スナップ時だけ軽く補間
+    p.cx += (p.tx - p.cx) * k; p.cy += (p.ty - p.cy) * k; if (Math.abs(p.tx - p.cx) < .4) p.cx = p.tx; if (Math.abs(p.ty - p.cy) < .4) p.cy = p.ty;
+    const pos = p.cx + ',' + p.cy + (snap ? 'S' : 'F');
+    if (pos !== p.lastPos) {
+      p.lastPos = pos;
+      const a = { x: p.sx, y: p.sy }, b = { x: p.cx, y: p.cy }, dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), lift = Math.min(170, 60 + L * .35);
+      const c1 = { x: a.x, y: a.y - lift }, c2 = { x: b.x - dx * .25, y: b.y + (snap ? 50 : 30) + Math.min(60, L * .1) };
+      const d = `M${a.x} ${a.y} C${c1.x} ${c1.y} ${c2.x.toFixed(1)} ${c2.y.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+      sv.g.setAttribute('d', d); sv.k.setAttribute('d', d); sv.c.setAttribute('d', d); sv.w.setAttribute('d', d);
+      const ang = Math.atan2(b.y - c2.y, b.x - c2.x), ah = 16;
+      sv.h.setAttribute('points', `${b.x.toFixed(1)},${b.y.toFixed(1)} ${(b.x - Math.cos(ang - .45) * ah).toFixed(1)},${(b.y - Math.sin(ang - .45) * ah).toFixed(1)} ${(b.x - Math.cos(ang + .45) * ah).toFixed(1)},${(b.y - Math.sin(ang + .45) * ah).toFixed(1)}`);
+    }
+    if (sv.snap !== snap) { sv.snap = snap; sv.c.setAttribute('stroke-dasharray', snap ? '0' : '2 9'); sv.h.setAttribute('fill', snap ? '#fff' : sv.col); }
+    const bb = snap ? this.bubbleOf(p) : null;
+    if (bb) {
+      if (p.bk !== bb[1]) { p.bk = bb[1]; bub.innerHTML = bb[1]; bub.style.color = bb[0]; bub.style.borderColor = bb[0]; }
+      if (bub.hidden) bub.hidden = false;
+      const bx = Math.round(p.cx + 14), by = Math.round(p.cy - 46), bp = bx + ',' + by; if (p.bpos !== bp) { p.bpos = bp; bub.style.transform = `translate(${bx}px,${by}px)`; }
+    } else if (!bub.hidden) { bub.hidden = true; p.bk = null; }
   }
   onPU(e) {
     const p = this.pend; if (!p || (e && e.pointerId !== p.id)) return; this.pend = null;
     if (!p.drag) return;
     this.suppressClick = true; setTimeout(() => { this.suppressClick = false; }, 80);
+    if (this.view) this.view.slow = 0;
     p.el.classList.remove('dragsrc'); this.stage.classList.remove('dragging'); if (p.over) p.over.el.classList.remove('over'); this.clearDragChips();
     const svg = $('#dragsvg'); if (svg) svg.innerHTML = ''; const bub = $('#wrbub'); if (bub) bub.hidden = true;
     this.sel = null; this.markSel();
     if (p.over && this.phase === 'plan') {
       const tu = this.B.U(p.over.e); const defk = p.s.skill.kind !== 'atk' && !p.s.skill.ego;
       if (defk) { if (tu && tu.alive && p.over.s != null) { p.s.dtarget = { u: tu.id, s: p.over.s }; SFX.play('ok'); this.refreshSlots(); this.renderArrows(); } else { SFX.play('deny'); toast('回避・防御は敵のスキルを選択してください'); this.renderArrows(); } return; }
-      if (tu && tu.alive) { const was = this.B.predict(); p.s.target = { u: tu.id, s: p.over.s }; SFX.play(this.B.predict().get(p.s) && this.B.predict().get(p.s).k === 'steal' ? 'flip' : 'ok'); this.refreshSlots(); this.renderArrows(); this.notifyDisplaced(p, was); const sl = $(`.slot[data-u="${p.u.id}"][data-i="${p.s.i}"]`); if (sl) { sl.classList.add('assigned'); setTimeout(() => sl.classList.remove('assigned'), 500); } return; }
+      if (tu && tu.alive) {
+        const was = this.B.predict(); p.s.target = { u: tu.id, s: p.over.s }; const now = this.B.predict(); this.pred = now;
+        SFX.play(now.get(p.s) && now.get(p.s).k === 'steal' ? 'flip' : 'ok'); this.refreshSlots(); this.renderArrows(); this.notifyDisplaced(p, was, now);
+        const sl = $(`.slot[data-u="${p.u.id}"][data-i="${p.s.i}"]`); if (sl) { sl.classList.add('assigned'); setTimeout(() => sl.classList.remove('assigned'), 500); } return;
+      }
     }
     SFX.play('back'); this.renderArrows();
   }
   /* 奪取で合戦相手を失った味方スキルを知らせる */
-  notifyDisplaced(p, was) {
-    const now = this.B.predict(), me = now.get(p.s), out = [];
+  notifyDisplaced(p, was, now) {
+    now = now || this.B.predict(); const me = now.get(p.s), out = [];
     this.B.alive('A').forEach(u => u.slots.forEach(s => { if (s === p.s) return; const a = was.get(s), b = now.get(s); if (a && b && (a.k === 'clash' || a.k === 'steal') && b.k === 'one') out.push(u.name + (b.why ? '(' + b.why + ')' : '')); }));
     if (me && me.k === 'steal') toast('マッチ奪い成立!' + (out.length ? ' 合戦を失う: ' + out.join('、') + ' → 標的を選び直せます' : ''));
     else if (out.length) toast('合戦が崩れました: ' + out.join('、'));
